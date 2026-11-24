@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>试片复测记录 · 迁库对照</title>
+<style>
+  body { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; margin: 24px; color: #222; }
+  h1 { font-size: 20px; } h2 { font-size: 16px; margin-top: 28px; border-left: 4px solid #2b6cb0; padding-left: 8px; }
+  table { border-collapse: collapse; margin-top: 8px; }
+  th, td { border: 1px solid #cbd5e0; padding: 4px 10px; font-size: 14px; }
+  th { background: #ebf4ff; }
+  .card { border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px; margin-top: 8px; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; }
+  .ok { background: #c6f6d5; } .bad { background: #fed7d7; } .warn { background: #feebc8; }
+  .inuse { background: #bee3f8; }
+  .flash-ok { background: #c6f6d5; } .flash-error { background: #fed7d7; } .flash-warn { background: #feebc8; }
+  .flash { padding: 8px 12px; border-radius: 6px; margin: 6px 0; font-size: 14px; }
+  button { padding: 4px 14px; cursor: pointer; }
+  input[type=number] { width: 90px; }
+  .muted { color: #718096; font-size: 13px; }
+  form.inline { display: inline; }
+</style>
+</head>
+<body>
+<h1>陶瓷质检迁库 · 试片复测记录对照</h1>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for cat, msg in messages %}
+    <div class="flash flash-{{ cat }}">{{ msg }}</div>
+  {% endfor %}
+{% endwith %}
+
+<div class="card">
+  <b>状态：</b>
+  旧表 {{ state.n_a }} 行 / 新表 {{ state.n_b }} 行；
+  {% if state.current_key_id %}
+    在用键 <b>#{{ state.current_key_id }}</b>；
+    {% if state.can_download %}<span class="badge ok">供数中</span>
+    {% else %}<span class="badge bad">已停供（复核使在用键失效，请另选合规键）</span>{% endif %}
+  {% else %}
+    <span class="badge warn">未选键</span>
+  {% endif %}
+</div>
+
+<h2>1. 上传两份同表头 CSV（每份 ≤ 20000 行；新上传将重置会话）</h2>
+<form method="post" action="{{ url_for('upload') }}" enctype="multipart/form-data">
+  旧系统台账 <input type="file" name="file_a" accept=".csv" required>
+  新系统台账 <input type="file" name="file_b" accept=".csv" required>
+  <button type="submit">上传</button>
+</form>
+
+{% if state.header %}
+<h2>2. 勾选备选列（至多 10 个）并计算对照键</h2>
+<form method="post" action="{{ url_for('columns') }}">
+  {% for c in state.header %}
+    <label style="margin-right:12px">
+      <input type="checkbox" name="columns" value="{{ c }}"
+             {% if c in state.selected_columns %}checked{% endif %}> {{ c }}
+    </label>
+  {% endfor %}
+  <button type="submit">保存备选列</button>
+</form>
+<form method="post" action="{{ url_for('keys_compute') }}" style="margin-top:6px">
+  <button type="submit">计算列数最少的合规对照键</button>
+</form>
+{% endif %}
+
+{% if state["keys"] %}
+<h2>3. 候选对照键（合规且列数最少）</h2>
+<table>
+  <tr><th>#</th><th>键列</th><th>列数</th><th>合规</th><th>操作</th></tr>
+  {% for k in state["keys"] %}
+  <tr>
+    <td>{{ k.id }}</td>
+    <td>{{ k.cols | join(' + ') }}</td>
+    <td>{{ k.cols | length }}</td>
+    <td>{% if k.compatible %}<span class="badge ok">合规</span>{% else %}<span class="badge bad">失效</span>{% endif %}
+        {% if k.in_use %}<span class="badge inuse">在用</span>{% endif %}</td>
+    <td>
+      {% if k.compatible and not k.in_use %}
+      <form class="inline" method="post" action="{{ url_for('keys_select') }}">
+        <input type="hidden" name="key_id" value="{{ k.id }}">
+        <button type="submit">选用</button>
+      </form>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+{% if state.n_a %}
+<h2>4. 复核判定（按两表行号登记 / 撤销）</h2>
+<form method="post" action="{{ url_for('judgments_add') }}">
+  旧表行号 <input type="number" name="row_a" min="1" max="{{ state.n_a }}" required>
+  新表行号 <input type="number" name="row_b" min="1" max="{{ state.n_b }}" required>
+  <select name="typ">
+    <option value="same">同次（键值须相同）</option>
+    <option value="diff">异次（键值须不同）</option>
+  </select>
+  <button type="submit">登记判定</button>
+</form>
+{% if state.judgments %}
+<table>
+  <tr><th>#</th><th>旧表行号</th><th>新表行号</th><th>判定</th><th>时间(UTC)</th><th></th></tr>
+  {% for j in state.judgments %}
+  <tr>
+    <td>{{ j.id }}</td><td>{{ j.row_a }}</td><td>{{ j.row_b }}</td>
+    <td>{{ j.typ_label }}</td><td>{{ j.created_at }}</td>
+    <td>
+      <form class="inline" method="post" action="{{ url_for('judgments_revoke') }}">
+        <input type="hidden" name="judgment_id" value="{{ j.id }}">
+        <button type="submit">撤销</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+{% endif %}
+
+<h2>5. 下载行号对照表（含单边记录）</h2>
+{% if state.can_download %}
+  <p><a href="{{ url_for('download') }}"><button>下载 mapping CSV</button></a></p>
+{% else %}
+  <p class="muted">当前不可下载：须先选用一个合规对照键（在用键被复核判定失效后会停供，另选可用键即恢复）。</p>
+{% endif %}
+
+</body>
+</html>

@@ -1,0 +1,15 @@
+services:
+  web:
+    build: .
+    image: qc-key-migration
+    ports:
+      - "8000:5000"
+    environment:
+      DATABASE: /data/app.db
+      SECRET_KEY: qc-demo-secret
+    volumes:
+      - qcdata:/data
+    restart: unless-stopped
+
+volumes:
+  qcdata:

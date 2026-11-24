@@ -1,0 +1,11 @@
+.git
+.gitignore
+data
+tests
+scripts
+sample_data
+__pycache__
+*.pyc
+.pytest_cache
+README.md
+requirements-dev.txt
